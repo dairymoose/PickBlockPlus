@@ -1,33 +1,24 @@
 package com.chaosthedude.pickblockplus;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.audio.PositionedSoundRecord;
-import net.minecraft.client.settings.GameSettings;
-import net.minecraft.client.settings.KeyBinding;
-import net.minecraft.enchantment.Enchantment.Rarity;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.InventoryPlayer;
-import net.minecraft.init.SoundEvents;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.EnumHand;
-import net.minecraft.util.ResourceLocation;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.RayTraceResult;
-import net.minecraft.world.World;
-import net.minecraftforge.common.ForgeHooks;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
-import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 public class ClientTickHandler {
 
-	private final Minecraft mc = Minecraft.getMinecraft();
+	private final Minecraft mc = Minecraft.getInstance();
 	private ItemStack[] hotbar = new ItemStack[9];
 	private boolean activated = true;
 	private int ticksSincePressed = 0;
+	public static boolean reversePickingLogic = true;
 
 	@SubscribeEvent
 	public void onClientTick(TickEvent.ClientTickEvent event) {
@@ -35,17 +26,17 @@ public class ClientTickHandler {
 			return;
 		}
 
-		overrideVanillaPickBlock();
+		//overrideVanillaPickBlock();
 		checkPickBlockKey();
 	}
 
 	private void checkPickBlockKey() {
-		EntityPlayer player = mc.player;
+		Player player = mc.player;
 		if (player == null) {
 			return;
 		}
 
-		if (!PickBlockPlus.pickBlockPlus.isKeyDown()) {
+		if (!PickBlockPlusClient.PICK_BLOCK_HOTKEY.isDown()) {
 			activated = false;
 			ticksSincePressed++;
 			if (ticksSincePressed > 20) {
@@ -60,84 +51,43 @@ public class ClientTickHandler {
 		}
 
 		activated = true;
-		if (mc.currentScreen != null) {
+		if (mc.screen != null) {
 			return;
 		}
 
-		RayTraceResult target = mc.objectMouseOver;
+		HitResult target = mc.hitResult;
 		if (target == null) {
 			return;
 		}
 
-		if (player.capabilities.isCreativeMode) {
-			ForgeHooks.onPickBlock(target, player, mc.world);
-			mc.getSoundHandler().playSound(PositionedSoundRecord.getMasterRecord(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+		if (player.isCreative()) {
+			//ForgeHooks.onPickBlock(target, player, mc.level);
+			mc.pickBlock();
+			mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
 			return;
 		}
 
-		int slot = player.inventory.currentItem;
-		if (hotbar.length != InventoryPlayer.getHotbarSize()) {
-			hotbar = new ItemStack[InventoryPlayer.getHotbarSize()];
+		int slot = player.getInventory().selected;
+		if (hotbar.length != 9) {
+			hotbar = new ItemStack[9];
 		}
 
-		if (ticksSincePressed > 10) {
+		boolean isStanding = !player.isCrouching();
+		
+		if (reversePickingLogic)
+			isStanding = !isStanding;
+			
+		if (isStanding) {
 			ticksSincePressed = 0;
-			List<ItemStack> validItems = new ArrayList();
-			if (slot >= 0 && 0 < hotbar.length && hotbar[slot] != null) {
-				ItemStack original = hotbar[slot];
-				hotbar[slot] = null;
-				boolean moved = false;
-				for (int i = 0; i < InventoryPlayer.getHotbarSize(); i++) {
-					if (Util.areItemStacksIdentical(original, player.inventory.getStackInSlot(i))) {
-						moved = true;
-						break;
-					}
-				}
-
-				if (!moved) {
-					validItems.add(original);
-				}
-			}
-
-			if (target.typeOfHit == RayTraceResult.Type.BLOCK) {
-				World world = player.world;
-				BlockPos pos = target.getBlockPos();
-				IBlockState state = player.world.getBlockState(pos);
-
-				validItems.add(world.getBlockState(pos).getBlock().getPickBlock(state, target, world, pos, player));
-				validItems.add(Util.getBrokenBlock(world, pos));
-				validItems.add(new ItemStack(world.getBlockState(pos).getBlock(), 1));
-			} else if (target.typeOfHit == RayTraceResult.Type.ENTITY) {
-				validItems.add(target.entityHit.getPickedResult(target));
-			}
-
-			ItemStack held = player.getHeldItem(EnumHand.MAIN_HAND);
-			for (ItemStack stack : validItems) {
-				for (int invSlot = 0; invSlot < player.inventory.mainInventory.size(); invSlot++) {
-					if (stack != null) {
-						ItemStack possibleItem = player.inventory.mainInventory.get(invSlot);
-						if (possibleItem != null) {
-							if (possibleItem.isItemEqual(stack)) {
-								mc.getSoundHandler().playSound(PositionedSoundRecord.getMasterRecord(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-								if (invSlot < 9) {
-									player.inventory.currentItem = invSlot;
-									return;
-								}
-
-								Util.swapItems(player, held, invSlot, hotbar);
-								return;
-							}
-						}
-					}
-				}
-			}
+			mc.pickBlock();
+			//mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
 		} else {
 			ticksSincePressed = 0;
 			boolean targetIsEntity = false;
-			IBlockState state = null;
-			if (target.typeOfHit == RayTraceResult.Type.BLOCK) {
-				state = player.world.getBlockState(target.getBlockPos());
-			} else if (target.typeOfHit == RayTraceResult.Type.ENTITY) {
+			BlockState state = null;
+			if (target.getType() == HitResult.Type.BLOCK) {
+				state = player.level().getBlockState(((BlockHitResult)target).getBlockPos());
+			} else if (target.getType() == HitResult.Type.ENTITY) {
 				targetIsEntity = true;
 			}
 
@@ -145,7 +95,7 @@ public class ClientTickHandler {
 				return;
 			}
 
-			ItemStack held = player.getHeldItem(EnumHand.MAIN_HAND);
+			ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
 			int bestSlot = -1;
 			if (targetIsEntity) {
 				bestSlot = Util.getHighestDamageItemSlot(player);
@@ -157,9 +107,9 @@ public class ClientTickHandler {
 				return;
 			}
 
-			mc.getSoundHandler().playSound(PositionedSoundRecord.getMasterRecord(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+			//mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
 			if (bestSlot < 9) {
-				player.inventory.currentItem = bestSlot;
+				player.getInventory().selected = bestSlot;
 				return;
 			}
 
@@ -168,14 +118,14 @@ public class ClientTickHandler {
 		}
 	}
 
-	private void overrideVanillaPickBlock() {
-		GameSettings settings = Minecraft.getMinecraft().gameSettings;
-		if (settings.keyBindPickBlock.getKeyCode() != 0 && PickBlockPlus.pickBlockPlus.getKeyCode() == 0) {
-			PickBlockPlus.logger.info("Overriding vanilla pick block");
-			settings.setOptionKeyBinding(PickBlockPlus.pickBlockPlus, settings.keyBindPickBlock.getKeyCode());
-			settings.setOptionKeyBinding(settings.keyBindPickBlock, 0);
-			KeyBinding.resetKeyBindingArrayAndHash();
-		}
-	}
+//	private void overrideVanillaPickBlock() {
+//		GameSettings settings = Minecraft.getMinecraft().gameSettings;
+//		if (settings.keyBindPickBlock.getKeyCode() != 0 && PickBlockPlusClient.pickBlockPlus.getKeyCode() == 0) {
+//			PickBlockPlusClient.logger.info("Overriding vanilla pick block");
+//			settings.setOptionKeyBinding(PickBlockPlusClient.pickBlockPlus, settings.keyBindPickBlock.getKeyCode());
+//			settings.setOptionKeyBinding(settings.keyBindPickBlock, 0);
+//			KeyBinding.resetKeyBindingArrayAndHash();
+//		}
+//	}
 
 }
