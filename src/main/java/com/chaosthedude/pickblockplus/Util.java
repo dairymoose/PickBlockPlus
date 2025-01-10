@@ -7,12 +7,17 @@ import java.util.List;
 import com.google.common.collect.Multimap;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.NonNullList;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.MobType;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.level.block.state.BlockState;
 
 public class Util {
@@ -107,39 +112,38 @@ public class Util {
 		int highestDamageSlot = -1;
 		double highestDamage = -1D;
 		double highestSpeed = -1D;
-		for (int invSlot = 0; invSlot < player.getInventory().items.size(); invSlot++) {
-			ItemStack stack = player.getInventory().items.get(invSlot);
+		double highestDps = -1D;
+		NonNullList<ItemStack> inventory = player.getInventory().items;
+		for (int invSlot = 0; invSlot < inventory.size(); invSlot++) {
+			ItemStack stack = inventory.get(invSlot);
 			if (stack != null) {
 				if (highestDamageSlot == -1) {
 					highestDamageSlot = invSlot;
+					highestDamage = getDamageForItemStack(stack);
+					highestSpeed = getSpeedForItemStack(stack);
+					highestDps = highestDamage * highestSpeed;
+					//PickBlockPlusClient.LOGGER.info("initialSlot: highestDps is now: " + highestDps + " from item: " + stack + " with dmg=" + highestDamage + " and speed=" + highestSpeed);
 				} else {
-					double damage = -1D;
-					Multimap<Attribute, AttributeModifier> map = stack.getAttributeModifiers(EquipmentSlot.MAINHAND);
-					Collection<AttributeModifier> collection = map.get(Attributes.ATTACK_DAMAGE);
-					for (AttributeModifier o : collection) {
-						AttributeModifier modifier = (AttributeModifier) o;
-						if (modifier.getName().equals("Weapon modifier") || modifier.getName().equals("generic.attackDamage") || modifier.getName().equals("Tool modifier")) {
-							damage = modifier.getAmount();
-						}
-					}
-
-					if (damage > highestDamage) {
-						highestDamage = damage;
-						highestDamageSlot = invSlot;
-					} else if (damage == highestDamage) {
-						double speed = -1D;
-						Multimap map1 = stack.getAttributeModifiers(EquipmentSlot.MAINHAND);
-						Collection<AttributeModifier> collection1 = map1.get(Attributes.ATTACK_SPEED);
-						for (AttributeModifier o : collection1) {
-							AttributeModifier modifier = (AttributeModifier) o;
-							if (modifier.getName().equals("Weapon modifier") || modifier.getName().equals("Tool modifier")) {
-								speed = modifier.getAmount();
-							}
-						}
-						
-						if (speed < highestSpeed) {
-							highestSpeed = speed;
+					double damage = getDamageForItemStack(stack);
+					double speed = getSpeedForItemStack(stack);
+					double dps = damage * speed;
+					
+					if (ClientTickHandler.weaponSwapPreferDps) {
+						//PickBlockPlusClient.LOGGER.info("check item: " + stack + " with dmg=" + damage + " and speed=" + speed);
+						if (dps > highestDps) {
+							highestDps = dps;
 							highestDamageSlot = invSlot;
+							//PickBlockPlusClient.LOGGER.info("highestDps is now: " + highestDps + " from item: " + stack + " with dmg=" + damage + " and speed=" + speed);
+						}
+					} else {
+						if (damage > highestDamage) {
+							highestDamage = damage;
+							highestDamageSlot = invSlot;
+						} else if (damage == highestDamage) {
+							if (speed > highestSpeed) {
+								highestSpeed = speed;
+								highestDamageSlot = invSlot;
+							}
 						}
 					}
 				}
@@ -149,9 +153,69 @@ public class Util {
 		return highestDamageSlot;
 	}
 
-	public static void swapItems(Player player, ItemStack held, int invSlot, ItemStack[] hotbar) {
+	private static double computeTotalForAttributeModifier(Player player, ItemStack itemStack, AttributeModifier attributemodifier) {
+		double d0 = attributemodifier.getAmount();
+        boolean flag = false;
+        if (player != null) {
+           if (isWeaponDamageModifier(attributemodifier)) {
+              d0 += player.getAttributeBaseValue(Attributes.ATTACK_DAMAGE);
+              d0 += (double)EnchantmentHelper.getDamageBonus(itemStack, MobType.UNDEFINED);
+           } else if (isAttackSpeedModifier(attributemodifier)) {
+              d0 += player.getAttributeBaseValue(Attributes.ATTACK_SPEED);
+           }
+        }
+        return d0;
+	}
+	
+	private static double getSpeedForItemStack(ItemStack stack) {
+		double speed = 0;
+		Multimap<Attribute, AttributeModifier> map = stack.getAttributeModifiers(EquipmentSlot.MAINHAND);
+		Collection<AttributeModifier> collection1 = map.get(Attributes.ATTACK_SPEED);
+		for (AttributeModifier o : collection1) {
+			AttributeModifier modifier = (AttributeModifier) o;
+			if (isAttackSpeedModifier(modifier)) {
+				speed = computeTotalForAttributeModifier(Minecraft.getInstance().player, stack, modifier);
+				//speed = modifier.getAmount();
+			}
+		}
+		return speed;
+	}
+
+	private static boolean isAttackSpeedModifier(AttributeModifier attributemodifier) {
+		return attributemodifier.getId() == Item.BASE_ATTACK_SPEED_UUID;
+	}
+
+	private static double getDamageForItemStack(ItemStack stack) {
+		double damage = 0;
+		Multimap<Attribute, AttributeModifier> map = stack.getAttributeModifiers(EquipmentSlot.MAINHAND);
+		Collection<AttributeModifier> collection = map.get(Attributes.ATTACK_DAMAGE);
+		for (AttributeModifier o : collection) {
+			AttributeModifier modifier = (AttributeModifier) o;
+			if (isWeaponDamageModifier(modifier)) {
+				damage = computeTotalForAttributeModifier(Minecraft.getInstance().player, stack, modifier);
+				//damage = modifier.getAmount();
+			}
+		}
+		return damage;
+	}
+
+	private static boolean isWeaponDamageModifier(AttributeModifier attributemodifier) {
+		return attributemodifier.getId() == Item.BASE_ATTACK_DAMAGE_UUID;
+	}
+
+	public static void swapItems(Player player, ItemStack held, int invSlot, ItemStack[] hotbar, boolean isWeaponSwap, boolean isToolSwap) {
 		int targetSlot = player.getInventory().selected;
-		//Minecraft.getInstance().playerController.pickItem(invSlot);
+		
+		if (isWeaponSwap && ClientTickHandler.dedicatedWeaponSlot != 0) {
+			targetSlot = ClientTickHandler.dedicatedWeaponSlot - 1;
+			player.getInventory().selected = targetSlot;
+		} else if (isToolSwap && ClientTickHandler.dedicatedToolSlot != 0) {
+			targetSlot = ClientTickHandler.dedicatedToolSlot - 1;
+			player.getInventory().selected = targetSlot;
+		}
+		
+		Minecraft.getInstance().gameMode.handleInventoryMouseClick(player.inventoryMenu.containerId, invSlot, targetSlot, ClickType.SWAP, player);
+		
 		if (held == null) {
 			return;
 		}

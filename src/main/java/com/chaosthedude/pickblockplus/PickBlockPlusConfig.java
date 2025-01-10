@@ -22,6 +22,18 @@ public class PickBlockPlusConfig
             .comment("Reverse crouching logic")
             .define("reverse_crouch_logic", false);
     
+    private static final ForgeConfigSpec.ConfigValue<Integer> DEDICATED_WEAPON_SLOT = BUILDER
+            .comment("Dedicated weapon slot")
+            .defineInRange("dedicated_weapon_slot", 0, 0, 9);
+    
+    private static final ForgeConfigSpec.ConfigValue<Integer> DEDICATED_TOOL_SLOT = BUILDER
+            .comment("Dedicated tool slot")
+            .defineInRange("dedicated_tool_slot", 0, 0, 9);
+    
+    private static final ForgeConfigSpec.BooleanValue WEAPON_SWAP_PREFER_DPS = BUILDER
+            .comment("Weapon swap using highest dps")
+            .define("weapon_swap_prefer_dps", true);
+    
     static final ForgeConfigSpec SPEC = BUILDER.build();
 
     public static void reinit() {
@@ -29,6 +41,9 @@ public class PickBlockPlusConfig
 	    	LOGGER.debug(PickBlockPlusConfig.LOG_PREFIX + "Load Configuration");
 	    	
 	    	ClientTickHandler.reversePickingLogic = REVERSE_CROUCH_LOGIC.get().booleanValue();
+	    	ClientTickHandler.dedicatedWeaponSlot = DEDICATED_WEAPON_SLOT.get();
+	    	ClientTickHandler.dedicatedToolSlot = DEDICATED_TOOL_SLOT.get();
+	    	ClientTickHandler.weaponSwapPreferDps = WEAPON_SWAP_PREFER_DPS.get().booleanValue();
 	    	
 		} catch (Exception ex) {
 			LOGGER.error("Error initializing config", ex);
